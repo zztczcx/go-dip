@@ -1,28 +1,59 @@
 package main
 
+import (
+	"flag"
+	"log"
+	"math/rand"
+	"net"
+	"os"
+	"os/signal"
+	"runtime"
+	"syscall"
+	"time"
+        "github.com/zztczcx/go-dip/pool"
+        "github.com/zztczcx/go-dip/tunnel"
+)
+
 
 func init() {
-	rand.Seed(time.Now().Unix())
+        rand.Seed(time.Now().Unix())
+}
+
+const SIG_RELOAD = syscall.Signal(35)
+const SIG_STATUS = syscall.Signal(36)
+
+func status() {
+	log.Printf("num goroutines: %d", runtime.NumGoroutine())
+	buf := make([]byte, 32768)
+	runtime.Stack(buf, true)
+	log.Printf("!!!!!stack!!!!!:%s", buf)
+}
+
+func monitor(){
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, SIG_RELOAD, SIG_STATUS, syscall.SIGTERM, syscall.SIGHUP)
+
+	for sig := range c {
+		switch sig {
+		case SIG_RELOAD:
+			//reload()
+		case SIG_STATUS:
+			status()
+		default:
+			log.Printf("catch siginal: %v, ignored", sig)
+		}
+	}
+
 }
 
 func main() {
 	var laddr string
 	flag.StringVar(&laddr, "listen", ":1248", "local listen port")
-	flag.Usage = usage
 	flag.Parse()
 
-	args := flag.Args()
-	if len(args) < 1 {
-		log.Println("config file is missed.")
-		return
-	}
-
-	options.config = args[0]
-	if err := reloadConfig(); err != nil {
-		log.Printf("load config failed:%v", err)
-		return
-	}
-
+	go monitor()
+        go pool.Run()
+         
 	// run
 	ln, err := net.Listen("tcp", laddr)
 	if err != nil {
@@ -31,21 +62,6 @@ func main() {
 	}
 	defer ln.Close()
 
-	go func() {
-		c := make(chan os.Signal, 1)
-		signal.Notify(c, SIG_RELOAD, SIG_STATUS, syscall.SIGTERM, syscall.SIGHUP)
-
-		for sig := range c {
-			switch sig {
-			case SIG_RELOAD:
-				reload()
-			case SIG_STATUS:
-				status()
-			default:
-				log.Printf("catch siginal: %v, ignored", sig)
-			}
-		}
-	}()
 
 	// run loop
 	for {
@@ -59,6 +75,6 @@ func main() {
 			}
 			continue
 		}
-		go handleConn(conn.(*net.TCPConn))
+		go tunnel.HandleConn(conn.(*net.TCPConn))
 	}
 }
